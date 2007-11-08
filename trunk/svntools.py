@@ -1,59 +1,53 @@
 import maya.cmds as mc
-import os, re, string as str, pickle
-import pysvn, xml.dom.minidom
-
-myrepos = ""
-mycheckout = ""
-
-cfgfilename = '/cgstaff/hbush/maya/scripts/svntools.cfg'
-
-HBlistbox = ""
-HBmainwin = ""
+import os, re, pickle, string as str
+import pysvn
 
 class checkedout:
 	"This class holds details of the local version of a file"
-	def __init__(self, passedrepos):
-		self.repos = passedrepos
+	def __init__(self):
+		self.repos = repos()
 		self.assetname = "jonboy"
 		self.projectname = "monkeyproject"
 		self.localdir = "/cgstaff/hbush/svntemp/" + self.projectname
 		self.client = pysvn.Client()
-		if os.path.isfile(cfgfilename):
+		if mc.optionVar(exists = 'svnProtocol'):
 			self.readcfg()
 
 	def readcfg(self):
-		f = open(cfgfilename, 'r')
-		self.repos = pickle.load(f)
+		self.repos.name = mc.optionVar(q = 'svnReposName')
+		self.repos.dir = mc.optionVar(q = 'svnReposDir')
+		self.repos.hostname = mc.optionVar(q = 'svnHostName')
+		self.repos.protocol = mc.optionVar(q = 'svnProtocol')
 
 	def writecfg(self):
-		f = open(cfgfilename, 'w')
-		pickle.dump(self.repos, f)
+		mc.optionVar(sv = [('svnReposName', self.repos.name), ('svnReposDir', self.repos.dir), ('svnHostName', self.repos.hostname), ('svnProtocol', self.repos.protocol)])
 
 	def filename(self):
 		return self.localdir + '/' + self.assetname + '/' + self.projectname + '.' + self.assetname + '.ma'
-
 
 	def revlist(self, what):
 		HBheadrev = pysvn.Revision(pysvn.opt_revision_kind.head)
 		HBcurrrev = HBheadrev
 		HBalllogs = self.client.log(self.filename())
-		self.listwin = mc.window()
+		if mc.window("svnToolsRevListWin", exists = True):
+			mc.deleteUI("svnToolsRevListWin")
+		self.listwin = mc.window("svnToolsRevListWin")
 		HBwindwidth=600
-		HBwindheight=300
-		mc.window(self.listwin, edit = True, widthHeight = [HBwindwidth, HBwindheight])
-		HBcolumns = mc.columnLayout(columnAttach = ('both', 5), columnWidth = HBwindwidth)
+		HBwindheight=600
+		mc.window(self.listwin, edit = True, widthHeight = [HBwindwidth, HBwindheight], title = "Select a revision to check out")
+		HBcolumns = mc.columnLayout(columnAttach = ('both', 5), adj = True)
 		HBrevlist = []
 		HBcount = 0
 		for HBentrydict in HBalllogs:
 			HBstring="Revision %d by %s - %s" % (HBentrydict['revision'].number, HBentrydict['author'], HBentrydict['message'])
-			print HBstring
 			HBrevlist.append(HBstring)
 			HBcount = HBcount + 1
-		self.revlistbox = mc.textScrollList(numberOfRows = HBcount, append = HBrevlist)
-		HBgrids = mc.gridLayout (numberOfColumns = 2, cellWidthHeight=(100, 50))
-		mc.button(label = "OK", command = self.revlistcall)
-		mc.button(label = "Cancel", command = self.revlistclose)
+		self.revlistbox = mc.textScrollList(numberOfRows = HBcount, append = HBrevlist, height = HBwindheight - 50)
+		HBgrids = mc.rowLayout (nc = 2, columnWidth2 = [HBwindwidth/2,HBwindwidth/2], columnAttach2 = (["right", "left"]), width = HBwindwidth)
+		mc.button(label = "OK", command = self.revlistcall, width = 100, align = "center")
+		mc.button(label = "Cancel", command = self.revlistclose, width = 100, align = "center")
 		mc.showWindow(self.listwin)
+		mc.window(self.listwin, edit = True, height = HBwindheight, width = HBwindwidth)
 
 	def revlistclose(self, result):
 		mc.deleteUI(self.listwin)
@@ -70,7 +64,7 @@ class checkedout:
 
 	def cfgwin(self, ignored):
 		self.cfgwin = configwin(self)
-
+	
 	def checkout(self, revnum = 0):
 		HBfilename = self.filename()
 		if not os.path.exists(self.localdir):
@@ -91,7 +85,7 @@ class checkedout:
 					defaultButton = 'Cancel', cancelButton = 'Cancel', dismissString = 'Cancel')
 				if HBresult == 'Cancel':
 					return -1
-			if not self.client.info(self.localdir).url == self.repos.url:
+			if not self.client.info(self.localdir).url == self.repos.url():
 				print "Switching..."
 				rmrec(self.localdir)
 		else:
@@ -101,60 +95,21 @@ class checkedout:
 		if revnum != 0:
 			print "Checking out revision number %d" % revnum
 			HBrev = pysvn.Revision(pysvn.opt_revision_kind.number, revnum)
-			self.client.checkout(self.repos.url, self.localdir, revision = HBrev)
+			self.client.checkout(self.repos.url(), self.localdir, revision = HBrev)
 		else:
 			print "Checking out youngest revision"
-			self.client.checkout(self.repos.url, self.localdir)
-		#comment = self.svnislocked()
-		#if (comment):
-			#print '%s is locked' % HBfilename 
-			#print "The comment says \"%s\"" % comment
-			#return 0
-		#else:
-			#print "%s is not locked, locking..." % HBfilename
-			#HBresult = mc.promptDialog(title = "Enter lock message",\
-				#message = "Please enter your reason for locking the file", button = ['OK', 'Don\'t lock'],\
-				#defaultButton = 'OK', cancelButton = 'Don\'t lock', dismissString = 'Don\'t lock')
-			#if HBresult == 'OK':
-				#HBlockmessage = mc.promptDialog(q = True, text = True)
-				#self.client.lock(HBfilename, HBlockmessage)
-			#else:
-				#HBanswer = mc.confirmDialog(title = "Warning", \
-					#message = "File NOT locked. Do NOT make any changes", \
-					#button = "OK", defaultButton = "OK", cancelButton = "OK", \
-					#dismissString = "OK")
-			#mc.file(self.filename(), o = True, force = True)
+			self.client.checkout(self.repos.url(), self.localdir)
+		mc.file(self.filename(), o = True, force = True)
 			
-	#def svnislocked(self):
-		#print "Checking lock..."
-		#HBfilename = self.filename()
-		#HBinfodump = self.client.info2 (HBfilename, recurse=False)
-		#print HBinfodump
-		#for path, info in HBinfodump:
-			#print "path = " + path 
-			#if info['lock']:
-				#print "Locked"
-				#if info['lock']['token'] != '':
-					#print "Locked 2"
-					#if info['lock']['owner'] == os.environ['USER']:
-						#print "Locked by current user: unlocking..."
-						#self.client.unlock(HBfilename)
-						#return 0
-					#else:
-						#print info['lock']['comment']
-						#return info['lock']['comment']
-		#return 0
-
 	def discard(self, ignored):
 		HBfilename=self.filename()
 		HBanswer = mc.confirmDialog(title = "Discard changes?", \
-					message = "Discard all changes and reload last committed version?", \
+					message = "Discard all changes and revert to the last checked out version?", \
 					button = ["Yes", "No"], defaultButton = "No", cancelButton = "No", \
 					dismissString = "No")
 		if HBanswer == "Yes":
 			print "Reverting..."
 			HBfilename = self.filename()
-			#self.client.unlock(HBfilename)
 			self.client.revert(HBfilename)
 			if (mc.file(HBfilename, open = True, force = True)):
 				return 1
@@ -164,25 +119,43 @@ class checkedout:
 			print "Cancelled"
 			return 0
 
-def rmrec(dirname):
-	if not os.path.isdir(dirname):
-		return 0
-	if not os.access(dirname, os.W_OK):
-		return 0
-	for root, dirs, files in os.walk(dirname, topdown = False):
-		print root
-		for eachfile in files:
-			os.remove(root + "/" + eachfile)
-		os.rmdir(root)
+	def save(self):
+		HBsavename = self.filename()
 
-def isversioned(checkfile):
-	HBclient = pysvn.Client()
-	dironly = re.compile('[^/]*$')
-	HBdirname = dironly.sub('', checkfile)
-	if not os.path.exists(HBdirname + ".svn"):
-		print "No .svn directory: assuming unversioned"
-		return 0
-	return HBclient.status(checkfile)[0].is_versioned
+		if not os.access(HBsavename, os.W_OK):
+			dironly = re.compile('/[^/]*$')
+			HBdirname = dironly.sub('', HBsavename)
+			os.makedirs(HBdirname)
+
+		mc.file(rename = HBsavename)
+		if mc.file(save = True, type = 'mayaAscii'):
+			return 1
+		else:
+			return 0
+		
+	def commit(self, ignored):
+		if self.save():
+			HBsavename = self.filename()
+			dironly = re.compile('/[^/]*$')
+			HBresult = mc.promptDialog(title = "Enter commit message",\
+					message = "Please enter a description of the edits you are committing", button = ['OK', 'Cancel'],\
+					defaultButton = 'OK', cancelButton = 'Cancel', dismissString = 'Cancel')
+			if HBresult == 'OK':
+				HBcommitmessage = mc.promptDialog(q = True, text = True)
+			else:
+				return 0
+
+			HBdirname = dironly.sub('', HBsavename)
+			self.client.checkin([HBdirname, HBsavename], HBcommitmessage)
+
+	def add(self):
+		if self.save():
+			dironly = re.compile('/[^/]*$')
+			HBdirname = dironly.sub('', svnname())
+			HBlist = self.client.status(HBdirname)
+			version_check = HBlist[len(HBlist)-1]
+			if not version_check.is_versioned:
+				self.client.add(HBdirname)
 
 class repos:
 	"All the details for a repository are stored in here"
@@ -191,26 +164,26 @@ class repos:
 		self.hostname = "wg09henry"
 		self.dir = "/cgstaff/hbush/.repos/"
 		self.name = "svntest"
-		self.updateurl()
 
-	def updateurl(self):
-		self.url = self.protocol + "://" + self.hostname + self.dir + self.name
+	def url(self):
+		return self.protocol + "://" + self.hostname + self.dir + self.name
 
 class configwin:
 	"Creates a config window"
 	def __init__(self, mycheckout):
 		self.checkout = mycheckout
 		self.repos = mycheckout.repos
-		self.winref = mc.window()
+		if mc.window("svnToolsConfigWin", exists = True):
+			mc.deleteUI("svnToolsConfigWin")
+		self.winref = mc.window("svnToolsConfigWin")
 		HBwindwidth=400
-		HBwindheight=600
+		HBwindheight=320
 		mc.window(self.winref, edit = True, height = HBwindheight, width = HBwindwidth, title = "SVN Tools Config")
 
 		HBtabs = mc.tabLayout()
 		HBcolumns = mc.columnLayout(adjustableColumn = True)
 		mc.tabLayout(HBtabs, edit = True, tabLabel = (HBcolumns, "Repository"))
-		self.urldisplay = mc.text (label = self.repos.url, align = "center")
-		self.repos.updateurl()
+		self.urldisplay = mc.text (label = self.repos.url(), align = "center")
 		
 		HBgrids = mc.gridLayout (numberOfColumns = 2, cellWidthHeight=(200, 120))
 		mc.frameLayout(label = "Protocol")
@@ -236,12 +209,13 @@ class configwin:
 		self.reposnamefield = mc.textField(editable = True, text = self.repos.name)
 		mc.textField(self.reposnamefield, edit = True, cc = self.changereposname)
 
+		mc.setParent(HBcolumns)
+		closeBut = mc.button(label = "Close", command = self.close)
 		mc.showWindow(self.winref)
 		mc.window(self.winref, edit = True, height = HBwindheight, width = HBwindwidth)
 
 	def printurl(self):
-		self.repos.updateurl()
-		mc.text(self.urldisplay, edit = True, label = self.repos.url)
+		mc.text(self.urldisplay, edit = True, label = self.repos.url())
 
 	def changereposname(self, newname):
 		self.repos.name = newname
@@ -273,19 +247,24 @@ class configwin:
 		self.printurl()
 		self.checkout.writecfg()
 
+	def close(self, ignored):
+		mc.deleteUI(self.winref)
+
 class mainwindow:
 	"Creates the main window"
 	def __init__(self, passedcheckout):
 		HBwindwidth = 300
 		HBwindheight = 500
 		self.checkout = passedcheckout
-		HBmainwin = mc.window()
+		if mc.window("svnToolsMainWin", exists = True):
+			mc.deleteUI("svnToolsMainWin")
+		HBmainwin = mc.window("svnToolsMainWin")
 		mc.window(HBmainwin, edit = True, height = HBwindheight, width = HBwindwidth, title = "SVN Tools for Maya")
 		HBcolumns = mc.columnLayout(adjustableColumn = True)
 		mc.button(label = "svncheckout(0)", align="center", command = self.checkout.coyoung, width=HBwindwidth)
 		mc.button(label = "svncorev", align="center", command = self.checkout.revlist, width=HBwindwidth)
 		#mc.button(label = "svnadd", align="center", command = "svntools.svnadd()", width=HBwindwidth)
-		#mc.button(label = "svncommit", align="center", command = "svntools.svncommit()", width=HBwindwidth)
+		mc.button(label = "svncommit", align="center", command = self.checkout.commit, width=HBwindwidth)
 		#mc.button(label = "svninfo", align="center", command = "svntools.svninfo()", width=HBwindwidth)
 		mc.button(label = "svndiscard", align="center", command = self.checkout.discard, width=HBwindwidth)
 		mc.button(label = "Config", align="center", command = self.checkout.cfgwin, width=HBwindwidth)
@@ -295,89 +274,27 @@ class mainwindow:
 	
 def svnmain():
 	print "svnmain()"
-	global HBmainwin, myrepos
-	myrepos = repos()
-	mycheckout = checkedout(myrepos)
+	mycheckout = checkedout()
 	mymainwindow = mainwindow(mycheckout)
 
-def svnadd():
-	print "svnadd()"
-	if svnsave():
-		HBclient = pysvn.Client()
-		dironly = re.compile('/[^/]*$')
-		HBdirname = dironly.sub('', svnname())
-		HBlist = HBclient.status(HBdirname)
-		version_check = HBlist[len(HBlist)-1]
-		if not version_check.is_versioned:
-			HBclient.add(HBdirname)
-
-def svndiscard():
-	HBanswer = mc.confirmDialog(title = "Discard changes?", \
-				message = "Discard all changes and reload last committed version?", \
-				button = ["Yes", "No"], defaultButton = "No", cancelButton = "No", \
-				dismissString = "No")
-	if HBanswer == "Yes":
-		print "Reverting..."
-		HBclient = pysvn.Client()
-		HBfilename = svnname()
-		#HBclient.unlock(HBfilename)
-		HBclient.revert(HBfilename)
-		if (mc.file(HBfilename, open = True, force = True)):
-			return 1
-		else:
-			return 0
-	else:
-		print "Cancelled"
+def rmrec(dirname):
+	if not os.path.isdir(dirname):
 		return 0
-
-def svnsave():
-	print "svnsave()"
-	HBsavename = svnname()
-
-	if not os.access(HBsavename, os.W_OK):
-		print HBsavename
-		dironly = re.compile('/[^/]*$')
-		HBdirname = dironly.sub('', HBsavename)
-		print HBdirname
-		os.makedirs(HBdirname)
-
-	mc.file(rename = svnname())
-	if mc.file(save = True, type = 'mayaAscii'):
-		return 1
-	else:
+	if not os.access(dirname, os.W_OK):
 		return 0
-	
-def svncommit():
-	print "svncommit()"
-	if svnsave():
-		HBclient = pysvn.Client()
-		HBsavename = svnname()
-		dironly = re.compile('/[^/]*$')
-		HBdirname = dironly.sub('', HBsavename)
-		HBclient.checkin([HBdirname, HBsavename], 'another test commit message, still hardcoded')
+	for root, dirs, files in os.walk(dirname, topdown = False):
+		for eachfile in files:
+			os.remove(root + "/" + eachfile)
+		os.rmdir(root)
 
-def svninfo():
-	print "svninfo()"
+def isversioned(checkfile):
 	HBclient = pysvn.Client()
-	HBheadrev = pysvn.Revision(pysvn.opt_revision_kind.head)
-	HBcurrrev = HBheadrev
-	HBalllogs = HBclient.log(svnname())
-	HBlistwin = mc.window()
-	HBwindwidth=600
-	HBwindheight=300
-	mc.window(HBlistwin, edit = True, widthHeight = [HBwindwidth, HBwindheight])
-	HBcolumns = mc.columnLayout(columnAttach = ('both', 5), columnWidth = HBwindwidth)
-	HBrevlist = []
-	HBcount = 0
-	for HBentrydict in HBalllogs:
-		HBstring="Revision %d by %s - %s" % (HBentrydict['revision'].number, HBentrydict['author'], HBentrydict['message'])
-		print HBstring
-		HBrevlist.append(HBstring)
-		HBcount = HBcount + 1
-
-	#HBlistbox = mc.textScrollList(numberOfRows = HBcount, append = HBrevlist)
-	#mc.button()
-	mc.showWindow(HBlistwin)
+	dironly = re.compile('[^/]*$')
+	HBdirname = dironly.sub('', checkfile)
+	if not os.path.exists(HBdirname + ".svn"):
+		print "No .svn directory: assuming unversioned"
+		return 0
+	return HBclient.status(checkfile)[0].is_versioned
 
 if __name__ == "svntools":
 	svnmain()
