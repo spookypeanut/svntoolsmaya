@@ -1,29 +1,37 @@
 import maya.cmds as mc
 import os, re, pickle, string as str
-import pysvn
+import pysvn, time
 
 class checkedout:
 	"This class holds details of the local version of a file"
 	def __init__(self):
 		self.repos = repos()
+		self.client = pysvn.Client()
 		self.assetname = "jonboy"
 		self.projectname = "monkeyproject"
-		self.localdir = "/cgstaff/hbush/svntemp/" + self.projectname
-		self.client = pysvn.Client()
+		self.tempdir = "/cgstaff/hbush/svntemp/"
+		
 		if mc.optionVar(exists = 'svnProtocol'):
 			self.readcfg()
+	
+	def localdir(self):
+		return self.tempdir + self.projectname
+
+	def filename(self):
+		return self.localdir() + '/' + self.assetname + '/' + self.projectname + '.' + self.assetname + '.ma'
 
 	def readcfg(self):
 		self.repos.name = mc.optionVar(q = 'svnReposName')
 		self.repos.dir = mc.optionVar(q = 'svnReposDir')
 		self.repos.hostname = mc.optionVar(q = 'svnHostName')
 		self.repos.protocol = mc.optionVar(q = 'svnProtocol')
+		self.tempdir = mc.optionVar(q = 'svnTempDir')
+		self.projectname = mc.optionVar(q = 'svnProjName')
+		self.assetname = mc.optionVar(q = 'svnAssetName')
 
 	def writecfg(self):
 		mc.optionVar(sv = [('svnReposName', self.repos.name), ('svnReposDir', self.repos.dir), ('svnHostName', self.repos.hostname), ('svnProtocol', self.repos.protocol)])
-
-	def filename(self):
-		return self.localdir + '/' + self.assetname + '/' + self.projectname + '.' + self.assetname + '.ma'
+		mc.optionVar(sv = [('svnTempDir', self.tempdir), ('svnProjName', self.projectname), ('svnAssetName', self.assetname)])
 
 	def revlist(self, what):
 		HBheadrev = pysvn.Revision(pysvn.opt_revision_kind.head)
@@ -67,8 +75,8 @@ class checkedout:
 	
 	def checkout(self, revnum = 0):
 		HBfilename = self.filename()
-		if not os.path.exists(self.localdir):
-			os.makedirs(self.localdir)
+		if not os.path.exists(self.localdir()):
+			os.makedirs(self.localdir())
 		if isversioned(HBfilename):
 			diffsdump = self.client.diff("temp_diff_files", HBfilename) 
 			if (mc.file(q = True, anyModified = True)) or (diffsdump != ""):
@@ -85,9 +93,9 @@ class checkedout:
 					defaultButton = 'Cancel', cancelButton = 'Cancel', dismissString = 'Cancel')
 				if HBresult == 'Cancel':
 					return -1
-			if not self.client.info(self.localdir).url == self.repos.url():
+			if not self.client.info(self.localdir()).url == self.repos.url():
 				print "Switching..."
-				rmrec(self.localdir)
+				rmrec(self.localdir())
 		else:
 			print "File not currently under version control"
 		if os.path.isfile(HBfilename):
@@ -95,10 +103,10 @@ class checkedout:
 		if revnum != 0:
 			print "Checking out revision number %d" % revnum
 			HBrev = pysvn.Revision(pysvn.opt_revision_kind.number, revnum)
-			self.client.checkout(self.repos.url(), self.localdir, revision = HBrev)
+			self.client.checkout(self.repos.url(), self.localdir(), revision = HBrev)
 		else:
 			print "Checking out youngest revision"
-			self.client.checkout(self.repos.url(), self.localdir)
+			self.client.checkout(self.repos.url(), self.localdir())
 		mc.file(self.filename(), o = True, force = True)
 			
 	def discard(self, ignored):
@@ -146,7 +154,16 @@ class checkedout:
 				return 0
 
 			HBdirname = dironly.sub('', HBsavename)
-			self.client.checkin([HBdirname, HBsavename], HBcommitmessage)
+			if self.client.checkin([HBdirname, HBsavename], HBcommitmessage):
+				mc.headsUpMessage("Commit successful")
+			else:
+				promptMessage = "The commit was unsuccessful.\n Make sure you save a copy of your edited file to a\ndifferent folder, then tell your system administrator"
+				HBresult = mc.confirmDialog(title = "Commit failed",\
+					message = promptMessage, button = 'OK',\
+					defaultButton = 'OK', cancelButton = 'OK', dismissString = 'OK')
+				
+
+
 
 	def add(self):
 		if self.save():
@@ -168,6 +185,12 @@ class repos:
 	def url(self):
 		return self.protocol + "://" + self.hostname + self.dir + self.name
 
+	def projexists(self, testproj):
+		HBclient = pysvn.Client()
+		allprojs = HBclient.list(self.url())
+		for eachproj in allprojs:
+			print eachproj
+
 class configwin:
 	"Creates a config window"
 	def __init__(self, mycheckout):
@@ -176,16 +199,28 @@ class configwin:
 		if mc.window("svnToolsConfigWin", exists = True):
 			mc.deleteUI("svnToolsConfigWin")
 		self.winref = mc.window("svnToolsConfigWin")
-		HBwindwidth=400
+		HBwindwidth=600
 		HBwindheight=320
 		mc.window(self.winref, edit = True, height = HBwindheight, width = HBwindwidth, title = "SVN Tools Config")
 
+		topLevel = mc.columnLayout(adjustableColumn = True)
 		HBtabs = mc.tabLayout()
+
+		self.reposTab(HBtabs)
+		self.localTab(HBtabs)
+
+		mc.setParent(topLevel)
+		closeBut = mc.button(label = "Close", command = self.close)
+
+		mc.showWindow(self.winref)
+		mc.window(self.winref, edit = True, height = HBwindheight, width = HBwindwidth)
+
+	def reposTab(self, parent):
 		HBcolumns = mc.columnLayout(adjustableColumn = True)
-		mc.tabLayout(HBtabs, edit = True, tabLabel = (HBcolumns, "Repository"))
+		mc.tabLayout(parent, edit = True, tabLabel = (HBcolumns, "Repository"))
 		self.urldisplay = mc.text (label = self.repos.url(), align = "center")
 		
-		HBgrids = mc.gridLayout (numberOfColumns = 2, cellWidthHeight=(200, 120))
+		HBgrids = mc.gridLayout (numberOfColumns = 2, cellWidthHeight=(300, 120))
 		mc.frameLayout(label = "Protocol")
 		HBmorecolumns = mc.columnLayout(columnAttach=('left', 30), columnWidth=10, adjustableColumn = True)
 		self.protfield = mc.radioCollection();
@@ -209,20 +244,51 @@ class configwin:
 		self.reposnamefield = mc.textField(editable = True, text = self.repos.name)
 		mc.textField(self.reposnamefield, edit = True, cc = self.changereposname)
 
-		mc.setParent(HBcolumns)
-		closeBut = mc.button(label = "Close", command = self.close)
-		mc.showWindow(self.winref)
-		mc.window(self.winref, edit = True, height = HBwindheight, width = HBwindwidth)
+		mc.setParent(parent)
 
-	def printurl(self):
-		mc.text(self.urldisplay, edit = True, label = self.repos.url())
+	def localTab(self, parent):
+		HBcolumns = mc.columnLayout(adjustableColumn = True)
+		mc.tabLayout(parent, edit = True, tabLabel = (HBcolumns, "Local Copy"))
+		self.filenamedisplay = mc.text (label = self.checkout.filename(), align = "center")
+
+		HBgrids = mc.gridLayout (numberOfColumns = 2, cellWidthHeight=(300, 120))
+
+		mc.frameLayout(label = "Project name")
+		self.projnamefield = mc.textField(editable = True, text = self.checkout.projectname)
+		mc.textField(self.projnamefield, edit = True, cc = self.changeproj)
+
+		mc.setParent(HBgrids)
+		mc.frameLayout(label = "Asset name")
+		self.assnamefield = mc.textField(editable = True, text = self.checkout.assetname)
+		mc.textField(self.assnamefield, edit = True, cc = self.changeass)
+
+		mc.setParent(HBgrids)
+		mc.frameLayout(label = "Temporary directory")
+		self.tempdirfield = mc.textField(editable = True, text = self.checkout.tempdir)
+		mc.textField(self.tempdirfield, edit = True, cc = self.changetemp)
+
+		mc.setParent(parent)
+
+	def changetemp(self, newname):
+		if newname[len(newname)-1] != '/':
+			newname = newname + '/'
+		self.checkout.tempdir = newname
+		self.somethingchanged()
+
+	def changeproj(self, newname):
+		self.checkout.repos.projexists(newname)
+		self.checkout.projectname = newname
+		self.somethingchanged()
+
+	def changeass(self, newname):
+		self.checkout.assetname = newname
+		self.somethingchanged()
 
 	def changereposname(self, newname):
 		self.repos.name = newname
 		self.somethingchanged()
 
 	def changereposdir(self, newdir):
-		print newdir
 		if newdir[len(newdir)-1] != '/':
 			newdir = newdir + '/'
 		self.repos.dir = newdir
@@ -244,8 +310,12 @@ class configwin:
 		self.somethingchanged()
 
 	def somethingchanged(self):
-		self.printurl()
+		self.updatewin()
 		self.checkout.writecfg()
+
+	def updatewin(self):
+		mc.text(self.urldisplay, edit = True, label = self.repos.url())
+		mc.text(self.filenamedisplay, edit = True, label = self.checkout.filename())
 
 	def close(self, ignored):
 		mc.deleteUI(self.winref)
@@ -261,12 +331,11 @@ class mainwindow:
 		HBmainwin = mc.window("svnToolsMainWin")
 		mc.window(HBmainwin, edit = True, height = HBwindheight, width = HBwindwidth, title = "SVN Tools for Maya")
 		HBcolumns = mc.columnLayout(adjustableColumn = True)
-		mc.button(label = "svncheckout(0)", align="center", command = self.checkout.coyoung, width=HBwindwidth)
-		mc.button(label = "svncorev", align="center", command = self.checkout.revlist, width=HBwindwidth)
+		mc.button(label = "Checkout youngest version", align="center", command = self.checkout.coyoung, width=HBwindwidth)
+		mc.button(label = "Checkout older version", align="center", command = self.checkout.revlist, width=HBwindwidth)
 		#mc.button(label = "svnadd", align="center", command = "svntools.svnadd()", width=HBwindwidth)
-		mc.button(label = "svncommit", align="center", command = self.checkout.commit, width=HBwindwidth)
-		#mc.button(label = "svninfo", align="center", command = "svntools.svninfo()", width=HBwindwidth)
-		mc.button(label = "svndiscard", align="center", command = self.checkout.discard, width=HBwindwidth)
+		mc.button(label = "Commit changes", align="center", command = self.checkout.commit, width=HBwindwidth)
+		mc.button(label = "Discard changes", align="center", command = self.checkout.discard, width=HBwindwidth)
 		mc.button(label = "Config", align="center", command = self.checkout.cfgwin, width=HBwindwidth)
 		mc.button(label = "Quit", align="center", command = "mc.deleteUI(\"" + HBmainwin + "\")", width=HBwindwidth)
 		mc.showWindow(HBmainwin)

@@ -1,2 +1,7 @@
+Make main window look pretty
+
+Make a project subdirectory in the repository and move everything into it
+
+When changing asset name, check to see if it exists (if not, add it)
 Get add to ask for new asset name
-Use optionVar to save off assetname, etc
+
