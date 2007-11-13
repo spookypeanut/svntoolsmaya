@@ -1,6 +1,6 @@
 import maya.cmds as mc
-import os, re, pickle, string as str
-import pysvn, time
+import os, re, string as str
+import pysvn
 
 class checkedout:
 	"This class holds details of the local version of a file"
@@ -9,29 +9,26 @@ class checkedout:
 		self.client = pysvn.Client()
 		self.assetname = "jonboy"
 		self.projectname = "monkeyproject"
-		self.tempdir = "/cgstaff/hbush/svntemp/"
+		self.localdir = "/cgstaff/hbush/svntemp/"
 		
 		if mc.optionVar(exists = 'svnProtocol'):
 			self.readcfg()
 	
-	def localdir(self):
-		return self.tempdir + self.projectname
-
 	def filename(self):
-		return self.localdir() + '/' + self.assetname + '/' + self.projectname + '.' + self.assetname + '.ma'
+		return self.localdir + '/' + self.projectname + '/' + self.assetname + '/' + self.projectname + '.' + self.assetname + '.ma'
 
 	def readcfg(self):
 		self.repos.name = mc.optionVar(q = 'svnReposName')
 		self.repos.dir = mc.optionVar(q = 'svnReposDir')
 		self.repos.hostname = mc.optionVar(q = 'svnHostName')
 		self.repos.protocol = mc.optionVar(q = 'svnProtocol')
-		self.tempdir = mc.optionVar(q = 'svnTempDir')
+		self.localdir = mc.optionVar(q = 'svnTempDir')
 		self.projectname = mc.optionVar(q = 'svnProjName')
 		self.assetname = mc.optionVar(q = 'svnAssetName')
 
 	def writecfg(self):
 		mc.optionVar(sv = [('svnReposName', self.repos.name), ('svnReposDir', self.repos.dir), ('svnHostName', self.repos.hostname), ('svnProtocol', self.repos.protocol)])
-		mc.optionVar(sv = [('svnTempDir', self.tempdir), ('svnProjName', self.projectname), ('svnAssetName', self.assetname)])
+		mc.optionVar(sv = [('svnTempDir', self.localdir), ('svnProjName', self.projectname), ('svnAssetName', self.assetname)])
 
 	def revlist(self, what):
 		HBheadrev = pysvn.Revision(pysvn.opt_revision_kind.head)
@@ -75,8 +72,8 @@ class checkedout:
 	
 	def checkout(self, revnum = 0):
 		HBfilename = self.filename()
-		if not os.path.exists(self.localdir()):
-			os.makedirs(self.localdir())
+		if not os.path.exists(self.localdir):
+			os.makedirs(self.localdir)
 		if isversioned(HBfilename):
 			diffsdump = self.client.diff("temp_diff_files", HBfilename) 
 			if (mc.file(q = True, anyModified = True)) or (diffsdump != ""):
@@ -93,9 +90,9 @@ class checkedout:
 					defaultButton = 'Cancel', cancelButton = 'Cancel', dismissString = 'Cancel')
 				if HBresult == 'Cancel':
 					return -1
-			if not self.client.info(self.localdir()).url == self.repos.url():
+			if not self.client.info(self.localdir).url == self.repos.url():
 				print "Switching..."
-				rmrec(self.localdir())
+				rmrec(self.localdir)
 		else:
 			print "File not currently under version control"
 		if os.path.isfile(HBfilename):
@@ -103,10 +100,11 @@ class checkedout:
 		if revnum != 0:
 			print "Checking out revision number %d" % revnum
 			HBrev = pysvn.Revision(pysvn.opt_revision_kind.number, revnum)
-			self.client.checkout(self.repos.url(), self.localdir(), revision = HBrev)
+			self.client.checkout(self.repos.url(), self.localdir, revision = HBrev)
 		else:
 			print "Checking out youngest revision"
-			self.client.checkout(self.repos.url(), self.localdir())
+			print "self.client.checkout(" + self.repos.url() + ", " + self.localdir + ")"
+			self.client.checkout(self.repos.url(), self.localdir)
 		mc.file(self.filename(), o = True, force = True)
 			
 	def discard(self, ignored):
@@ -157,13 +155,10 @@ class checkedout:
 			if self.client.checkin([HBdirname, HBsavename], HBcommitmessage):
 				mc.headsUpMessage("Commit successful")
 			else:
-				promptMessage = "The commit was unsuccessful.\n Make sure you save a copy of your edited file to a\ndifferent folder, then tell your system administrator"
+				promptMessage = "The commit was unsuccessful.\nMake sure you save a copy of your edited file to a\ndifferent folder, then tell your system administrator"
 				HBresult = mc.confirmDialog(title = "Commit failed",\
 					message = promptMessage, button = 'OK',\
 					defaultButton = 'OK', cancelButton = 'OK', dismissString = 'OK')
-				
-
-
 
 	def add(self):
 		if self.save():
@@ -264,19 +259,20 @@ class configwin:
 
 		mc.setParent(HBgrids)
 		mc.frameLayout(label = "Temporary directory")
-		self.tempdirfield = mc.textField(editable = True, text = self.checkout.tempdir)
-		mc.textField(self.tempdirfield, edit = True, cc = self.changetemp)
+		self.localdirfield = mc.textField(editable = True, text = self.checkout.localdir)
+		mc.textField(self.localdirfield, edit = True, cc = self.changetemp)
 
 		mc.setParent(parent)
 
 	def changetemp(self, newname):
 		if newname[len(newname)-1] != '/':
 			newname = newname + '/'
-		self.checkout.tempdir = newname
+		self.checkout.localdir = newname
 		self.somethingchanged()
 
 	def changeproj(self, newname):
 		self.checkout.repos.projexists(newname)
+
 		self.checkout.projectname = newname
 		self.somethingchanged()
 
