@@ -1,5 +1,4 @@
 Make main window look pretty
 
-When changing asset name, check to see if it exists (if not, add it)
-Get add to ask for new asset name
+Make the config window have lists for project & asset names
 

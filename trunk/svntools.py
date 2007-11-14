@@ -8,14 +8,14 @@ class checkedout:
 		self.repos = repos()
 		self.client = pysvn.Client()
 		self.assetname = "jonboy"
-		self.projectname = "monkeyproject"
+		self.projname = "monkeyproject"
 		self.localdir = "/cgstaff/hbush/svntemp/"
 		
 		if mc.optionVar(exists = 'svnProtocol'):
 			self.readcfg()
 	
 	def filename(self):
-		return self.localdir + '/' + self.projectname + '/' + self.assetname + '/' + self.projectname + '.' + self.assetname + '.ma'
+		return self.localdir + '/' + self.projname + '/' + self.assetname + '/' + self.projname + '.' + self.assetname + '.ma'
 
 	def readcfg(self):
 		self.repos.name = mc.optionVar(q = 'svnReposName')
@@ -23,14 +23,14 @@ class checkedout:
 		self.repos.hostname = mc.optionVar(q = 'svnHostName')
 		self.repos.protocol = mc.optionVar(q = 'svnProtocol')
 		self.localdir = mc.optionVar(q = 'svnTempDir')
-		self.projectname = mc.optionVar(q = 'svnProjName')
+		self.projname = mc.optionVar(q = 'svnProjName')
 		self.assetname = mc.optionVar(q = 'svnAssetName')
 
 	def writecfg(self):
 		mc.optionVar(sv = [('svnReposName', self.repos.name), ('svnReposDir', self.repos.dir), ('svnHostName', self.repos.hostname), ('svnProtocol', self.repos.protocol)])
-		mc.optionVar(sv = [('svnTempDir', self.localdir), ('svnProjName', self.projectname), ('svnAssetName', self.assetname)])
+		mc.optionVar(sv = [('svnTempDir', self.localdir), ('svnProjName', self.projname), ('svnAssetName', self.assetname)])
 
-	def revlist(self, what):
+	def revlist(self, ignored = "nothing"):
 		HBheadrev = pysvn.Revision(pysvn.opt_revision_kind.head)
 		HBcurrrev = HBheadrev
 		HBalllogs = self.client.log(self.filename())
@@ -64,10 +64,10 @@ class checkedout:
 		self.checkout(int(revnum))
 		self.revlistclose(0)
 
-	def coyoung(self, ignored):
+	def coyoung(self, ignored = "nothing"):
 		self.checkout(0)
 
-	def cfgwin(self, ignored):
+	def cfgwin(self, ignored = "nothing"):
 		self.cfgwin = configwin(self)
 	
 	def checkout(self, revnum = 0):
@@ -107,7 +107,15 @@ class checkedout:
 			self.client.checkout(self.repos.url(), self.localdir)
 		mc.file(self.filename(), o = True, force = True)
 			
-	def discard(self, ignored):
+	def adddir(self, fullpath):
+		if not os.path.exists(fullpath):
+			os.makedirs(fullpath)
+		self.client.add(fullpath)
+
+	#def addass(self, assname):
+
+		
+	def discard(self, ignored = "nothing"):
 		HBfilename=self.filename()
 		HBanswer = mc.confirmDialog(title = "Discard changes?", \
 					message = "Discard all changes and revert to the last checked out version?", \
@@ -129,8 +137,7 @@ class checkedout:
 		HBsavename = self.filename()
 
 		if not os.access(HBsavename, os.W_OK):
-			dironly = re.compile('/[^/]*$')
-			HBdirname = dironly.sub('', HBsavename)
+			HBdirname = dironly(HBsavename)
 			os.makedirs(HBdirname)
 
 		mc.file(rename = HBsavename)
@@ -139,10 +146,9 @@ class checkedout:
 		else:
 			return 0
 		
-	def commit(self, ignored):
+	def commit(self, ignored="nothing"):
 		if self.save():
 			HBsavename = self.filename()
-			dironly = re.compile('/[^/]*$')
 			HBresult = mc.promptDialog(title = "Enter commit message",\
 					message = "Please enter a description of the edits you are committing", button = ['OK', 'Cancel'],\
 					defaultButton = 'OK', cancelButton = 'Cancel', dismissString = 'Cancel')
@@ -151,7 +157,7 @@ class checkedout:
 			else:
 				return 0
 
-			HBdirname = dironly.sub('', HBsavename)
+			HBdirname = dironly(HBsavename)
 			if self.client.checkin([HBdirname, HBsavename], HBcommitmessage):
 				mc.headsUpMessage("Commit successful")
 			else:
@@ -162,8 +168,7 @@ class checkedout:
 
 	def add(self):
 		if self.save():
-			dironly = re.compile('/[^/]*$')
-			HBdirname = dironly.sub('', svnname())
+			HBdirname = dironly(svnname())
 			HBlist = self.client.status(HBdirname)
 			version_check = HBlist[len(HBlist)-1]
 			if not version_check.is_versioned:
@@ -183,8 +188,23 @@ class repos:
 	def projexists(self, testproj):
 		HBclient = pysvn.Client()
 		allprojs = HBclient.list(self.url())
-		for eachproj in allprojs:
-			print eachproj
+		allprojs = allprojs [1:]
+		for eachprojdict in allprojs:
+			eachproj = fileonly(eachprojdict[0]["path"])
+			if eachproj == testproj:
+				return 1
+		return 0
+
+	def assexists(self, projname, assname):
+		HBclient = pysvn.Client()
+		allprojs = HBclient.list(self.url() + "/" + projname)
+		allprojs = allprojs [1:]
+		for eachprojdict in allprojs:
+			eachproj = fileonly(eachprojdict[0]["path"])
+			if eachproj == assname:
+				return 1
+		return 0
+		
 
 class configwin:
 	"Creates a config window"
@@ -194,15 +214,16 @@ class configwin:
 		if mc.window("svnToolsConfigWin", exists = True):
 			mc.deleteUI("svnToolsConfigWin")
 		self.winref = mc.window("svnToolsConfigWin")
-		HBwindwidth=600
-		HBwindheight=320
+		HBwindwidth = 600
+		HBwindheight = 320
 		mc.window(self.winref, edit = True, height = HBwindheight, width = HBwindwidth, title = "SVN Tools Config")
 
 		topLevel = mc.columnLayout(adjustableColumn = True)
 		HBtabs = mc.tabLayout()
 
 		self.reposTab(HBtabs)
-		self.localTab(HBtabs)
+		self.assetTab(HBtabs)
+		self.miscTab(HBtabs)
 
 		mc.setParent(topLevel)
 		closeBut = mc.button(label = "Close", command = self.close)
@@ -241,15 +262,15 @@ class configwin:
 
 		mc.setParent(parent)
 
-	def localTab(self, parent):
+	def assetTab(self, parent):
 		HBcolumns = mc.columnLayout(adjustableColumn = True)
-		mc.tabLayout(parent, edit = True, tabLabel = (HBcolumns, "Local Copy"))
+		mc.tabLayout(parent, edit = True, tabLabel = (HBcolumns, "Asset"))
 		self.filenamedisplay = mc.text (label = self.checkout.filename(), align = "center")
 
-		HBgrids = mc.gridLayout (numberOfColumns = 2, cellWidthHeight=(300, 120))
+		HBgrids = mc.gridLayout (numberOfColumns = 2, cellWidthHeight=(300, 240))
 
 		mc.frameLayout(label = "Project name")
-		self.projnamefield = mc.textField(editable = True, text = self.checkout.projectname)
+		self.projnamefield = mc.textField(editable = True, text = self.checkout.projname)
 		mc.textField(self.projnamefield, edit = True, cc = self.changeproj)
 
 		mc.setParent(HBgrids)
@@ -257,26 +278,67 @@ class configwin:
 		self.assnamefield = mc.textField(editable = True, text = self.checkout.assetname)
 		mc.textField(self.assnamefield, edit = True, cc = self.changeass)
 
+		mc.setParent(parent)
+
+	def miscTab(self, parent):
+		HBcolumns = mc.columnLayout(adjustableColumn = True)
+		mc.tabLayout(parent, edit = True, tabLabel = (HBcolumns, "Miscellaneous"))
+		self.filenamedisplay = mc.text (label = self.checkout.filename(), align = "center")
+
+		HBgrids = mc.gridLayout (numberOfColumns = 2, cellWidthHeight=(300, 240))
 		mc.setParent(HBgrids)
 		mc.frameLayout(label = "Temporary directory")
 		self.localdirfield = mc.textField(editable = True, text = self.checkout.localdir)
-		mc.textField(self.localdirfield, edit = True, cc = self.changetemp)
+		mc.textField(self.localdirfield, edit = True, cc = self.changelocdir)
 
 		mc.setParent(parent)
 
-	def changetemp(self, newname):
-		if newname[len(newname)-1] != '/':
-			newname = newname + '/'
+	def changelocdir(self, newname):
+		if newname[len(newname)-1] == '/':
+			newname = newname[0:-1]
 		self.checkout.localdir = newname
 		self.somethingchanged()
 
 	def changeproj(self, newname):
-		self.checkout.repos.projexists(newname)
-
-		self.checkout.projectname = newname
+		if not self.checkout.repos.projexists(newname):
+			dialogmessage = "The project name you entered (" + newname + ") doesn't exist\nin the repository. Should it be added?" 
+			HBresult = mc.confirmDialog(title = "Add new project to repository?",\
+				message = dialogmessage, button = ['Add and Commit', 'Cancel'],\
+				defaultButton = 'Cancel', cancelButton = 'Cancel', dismissString = 'Cancel')
+			if HBresult == 'Cancel':
+				return -1
+			fullpath = self.checkout.localdir + "/" + newname
+			self.checkout.adddir(fullpath)
+			if HBresult == 'Add and Commit':
+				print "Committing..."
+				self.checkout.commit()
+		self.checkout.projname = newname
+		HBresult = mc.promptDialog(title = "Enter asset name",\
+				message = "Please enter the name of the asset in " + newname + " that you want to edit", \
+					button = ['OK', 'Cancel'], defaultButton = 'OK', cancelButton = 'Cancel', dismissString = 'Cancel')
+		if HBresult == 'OK':
+			HBcommitmessage = mc.promptDialog(q = True, text = True)
+		else:
+			return 0
+		self.changeass(self.checkout.assetname)
 		self.somethingchanged()
 
 	def changeass(self, newname):
+		if self.checkout.repos.assexists(self.checkout.projname, newname):
+			print "asset exists"
+		else:
+			print "asset does not exist"
+			dialogmessage = "The asset name you entered (" + newname + ") doesn't exist\nin the repository. Should it be added?" 
+			HBresult = mc.confirmDialog(title = "Add new asset to repository?",\
+				message = dialogmessage, button = ['Add and Commit', 'Cancel'],\
+				defaultButton = 'Cancel', cancelButton = 'Cancel', dismissString = 'Cancel')
+			if HBresult == 'Cancel':
+				return -1
+			fullpath = self.checkout.localdir + "/" + self.checkout.projname + "/" + newname
+			self.checkout.adddir(fullpath)
+			if HBresult == 'Add and Commit':
+				print "Committing..."
+				self.checkout.commit()
 		self.checkout.assetname = newname
 		self.somethingchanged()
 
@@ -313,7 +375,7 @@ class configwin:
 		mc.text(self.urldisplay, edit = True, label = self.repos.url())
 		mc.text(self.filenamedisplay, edit = True, label = self.checkout.filename())
 
-	def close(self, ignored):
+	def close(self, ignored = "nothing"):
 		mc.deleteUI(self.winref)
 
 class mainwindow:
@@ -353,13 +415,21 @@ def rmrec(dirname):
 		os.rmdir(root)
 
 def isversioned(checkfile):
+	print "Checking whether " + checkfile + " is versioned..."
 	HBclient = pysvn.Client()
-	dironly = re.compile('[^/]*$')
-	HBdirname = dironly.sub('', checkfile)
+	HBdirname = dironly(checkfile)
 	if not os.path.exists(HBdirname + ".svn"):
 		print "No .svn directory: assuming unversioned"
 		return 0
 	return HBclient.status(checkfile)[0].is_versioned
+
+def dironly(fullpath):
+	dironlyre = re.compile('/[^/]*$')
+	return dironlyre.sub('', fullpath)
+
+def fileonly(fullpath):
+	fileonlyre = re.compile('^.*\/')
+	return fileonlyre.sub('', fullpath)
 
 if __name__ == "svntools":
 	svnmain()
