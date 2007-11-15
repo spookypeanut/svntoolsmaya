@@ -1,6 +1,10 @@
 import maya.cmds as mc
+import maya.OpenMaya as OpenMaya
+import maya.OpenMayaMPx as OpenMayaMPx
 import os, re, string as str
 import pysvn
+
+current = "" 
 
 class checkedout:
 	"This class holds details of the local version of a file"
@@ -135,9 +139,8 @@ class checkedout:
 
 	def save(self):
 		HBsavename = self.filename()
-
-		if not os.access(HBsavename, os.W_OK):
-			HBdirname = dironly(HBsavename)
+		HBdirname = dironly(HBsavename)
+		if not os.access(HBdirname, os.W_OK):
 			os.makedirs(HBdirname)
 
 		mc.file(rename = HBsavename)
@@ -167,12 +170,18 @@ class checkedout:
 					defaultButton = 'OK', cancelButton = 'OK', dismissString = 'OK')
 
 	def add(self):
+		HBdirname = self.filename()
+		print "Adding " + self.filename()
 		if self.save():
-			HBdirname = dironly(svnname())
+			print "Saved OK..."
 			HBlist = self.client.status(HBdirname)
-			version_check = HBlist[len(HBlist)-1]
+			version_check = HBlist[0]
+# WARNING: TODO: FIXME: this line ^^^ may not work every time. It confuses me
+			print version_check
 			if not version_check.is_versioned:
+				print "Add succeeded"
 				self.client.add(HBdirname)
+
 
 class repos:
 	"All the details for a repository are stored in here"
@@ -205,31 +214,30 @@ class repos:
 				return 1
 		return 0
 		
-
 class configwin:
 	"Creates a config window"
-	def __init__(self, mycheckout):
-		self.checkout = mycheckout
-		self.repos = mycheckout.repos
+	def __init__(self, passedco):
+		self.checkout = passedco
+		self.repos = passedco.repos
 		if mc.window("svnToolsConfigWin", exists = True):
 			mc.deleteUI("svnToolsConfigWin")
 		self.winref = mc.window("svnToolsConfigWin")
-		HBwindwidth = 600
-		HBwindheight = 320
-		mc.window(self.winref, edit = True, height = HBwindheight, width = HBwindwidth, title = "SVN Tools Config")
+		self.width = 600
+		self.height = 320
+		mc.window(self.winref, edit = True, height = self.height, width = self.width, title = "SVN Tools Config")
 
 		topLevel = mc.columnLayout(adjustableColumn = True)
 		HBtabs = mc.tabLayout()
 
-		self.reposTab(HBtabs)
 		self.assetTab(HBtabs)
+		self.reposTab(HBtabs)
 		self.miscTab(HBtabs)
 
 		mc.setParent(topLevel)
 		closeBut = mc.button(label = "Close", command = self.close)
 
 		mc.showWindow(self.winref)
-		mc.window(self.winref, edit = True, height = HBwindheight, width = HBwindwidth)
+		mc.window(self.winref, edit = True, height = self.height, width = self.width)
 
 	def reposTab(self, parent):
 		HBcolumns = mc.columnLayout(adjustableColumn = True)
@@ -265,29 +273,60 @@ class configwin:
 	def assetTab(self, parent):
 		HBcolumns = mc.columnLayout(adjustableColumn = True)
 		mc.tabLayout(parent, edit = True, tabLabel = (HBcolumns, "Asset"))
-		self.filenamedisplay = mc.text (label = self.checkout.filename(), align = "center")
+		self.assfilenamedisplay = mc.text (label = self.checkout.filename(), align = "center")
 
 		HBgrids = mc.gridLayout (numberOfColumns = 2, cellWidthHeight=(300, 240))
 
 		mc.frameLayout(label = "Project name")
-		self.projnamefield = mc.textField(editable = True, text = self.checkout.projname)
-		mc.textField(self.projnamefield, edit = True, cc = self.changeproj)
+		rawlist = self.checkout.client.list(self.checkout.repos.url())
+		rawlist = rawlist[1:]
+		projlist = []
+		for eachproj in rawlist:
+			projlist.append(fileonly(eachproj[0]["path"]))
+		self.projlistbox = mc.textScrollList( append = projlist, selectCommand = self.changeproj, selectItem = self.checkout.projname)
 
 		mc.setParent(HBgrids)
 		mc.frameLayout(label = "Asset name")
-		self.assnamefield = mc.textField(editable = True, text = self.checkout.assetname)
-		mc.textField(self.assnamefield, edit = True, cc = self.changeass)
+		self.asslistbox = mc.textScrollList()
+		self.updateasslist()
 
 		mc.setParent(parent)
 
+	def updateasslist(self):
+		print "Updating asset list: switching to " + self.checkout.projname
+		mc.textScrollList(self.asslistbox, edit = True, ra = True)
+		rawlist = self.checkout.client.list(self.checkout.repos.url() + "/" + self.checkout.projname)
+		rawlist = rawlist[1:]
+		asslist = []
+		for eachass in rawlist:
+			asslist.append(fileonly(eachass[0]["path"]))
+		if len(asslist) == 0:
+			HBresult = mc.promptDialog(title = "Enter asset name",\
+					message = "The project you have chosen contains no assets\nPlease enter the name of the first asset now\nThis will be committed to the repository", button = ['OK', 'Cancel'],\
+					defaultButton = 'OK', cancelButton = 'Cancel', dismissString = 'Cancel')
+			if HBresult == 'OK':
+				newassname = mc.promptDialog(q = True, text = True)
+				self.checkout.adddir(self.checkout.localdir + "/" + self.checkout.projname + "/" + newassname)
+				self.checkout.assetname = newassname
+				self.checkout.add()
+				self.checkout.commit()
+				asslist.append(newassname)
+			else:
+				return 0
+		if self.checkout.assetname in asslist:
+			mc.textScrollList(self.asslistbox, edit = True, append = asslist, selectItem = self.checkout.assetname, selectCommand = self.changeass)
+		else:
+			mc.textScrollList(self.asslistbox, edit = True, append = asslist, sii = 1, selectCommand = self.changeass)
+
+		
 	def miscTab(self, parent):
 		HBcolumns = mc.columnLayout(adjustableColumn = True)
 		mc.tabLayout(parent, edit = True, tabLabel = (HBcolumns, "Miscellaneous"))
-		self.filenamedisplay = mc.text (label = self.checkout.filename(), align = "center")
+		self.miscfilenamedisplay = mc.text (label = self.checkout.filename(), align = "center")
 
 		HBgrids = mc.gridLayout (numberOfColumns = 2, cellWidthHeight=(300, 240))
 		mc.setParent(HBgrids)
-		mc.frameLayout(label = "Temporary directory")
+		mc.frameLayout(label = "Local directory")
 		self.localdirfield = mc.textField(editable = True, text = self.checkout.localdir)
 		mc.textField(self.localdirfield, edit = True, cc = self.changelocdir)
 
@@ -299,46 +338,14 @@ class configwin:
 		self.checkout.localdir = newname
 		self.somethingchanged()
 
-	def changeproj(self, newname):
-		if not self.checkout.repos.projexists(newname):
-			dialogmessage = "The project name you entered (" + newname + ") doesn't exist\nin the repository. Should it be added?" 
-			HBresult = mc.confirmDialog(title = "Add new project to repository?",\
-				message = dialogmessage, button = ['Add and Commit', 'Cancel'],\
-				defaultButton = 'Cancel', cancelButton = 'Cancel', dismissString = 'Cancel')
-			if HBresult == 'Cancel':
-				return -1
-			fullpath = self.checkout.localdir + "/" + newname
-			self.checkout.adddir(fullpath)
-			if HBresult == 'Add and Commit':
-				print "Committing..."
-				self.checkout.commit()
+	def changeproj(self):
+		newname = mc.textScrollList(self.projlistbox, q = True, selectItem = True)[0]
 		self.checkout.projname = newname
-		HBresult = mc.promptDialog(title = "Enter asset name",\
-				message = "Please enter the name of the asset in " + newname + " that you want to edit", \
-					button = ['OK', 'Cancel'], defaultButton = 'OK', cancelButton = 'Cancel', dismissString = 'Cancel')
-		if HBresult == 'OK':
-			HBcommitmessage = mc.promptDialog(q = True, text = True)
-		else:
-			return 0
-		self.changeass(self.checkout.assetname)
+		self.updateasslist()
 		self.somethingchanged()
 
-	def changeass(self, newname):
-		if self.checkout.repos.assexists(self.checkout.projname, newname):
-			print "asset exists"
-		else:
-			print "asset does not exist"
-			dialogmessage = "The asset name you entered (" + newname + ") doesn't exist\nin the repository. Should it be added?" 
-			HBresult = mc.confirmDialog(title = "Add new asset to repository?",\
-				message = dialogmessage, button = ['Add and Commit', 'Cancel'],\
-				defaultButton = 'Cancel', cancelButton = 'Cancel', dismissString = 'Cancel')
-			if HBresult == 'Cancel':
-				return -1
-			fullpath = self.checkout.localdir + "/" + self.checkout.projname + "/" + newname
-			self.checkout.adddir(fullpath)
-			if HBresult == 'Add and Commit':
-				print "Committing..."
-				self.checkout.commit()
+	def changeass(self):
+		newname = mc.textScrollList(self.asslistbox, q = True, selectItem = True)[0]
 		self.checkout.assetname = newname
 		self.somethingchanged()
 
@@ -373,7 +380,8 @@ class configwin:
 
 	def updatewin(self):
 		mc.text(self.urldisplay, edit = True, label = self.repos.url())
-		mc.text(self.filenamedisplay, edit = True, label = self.checkout.filename())
+		mc.text(self.assfilenamedisplay, edit = True, label = self.checkout.filename())
+		mc.text(self.miscfilenamedisplay, edit = True, label = self.checkout.filename())
 
 	def close(self, ignored = "nothing"):
 		mc.deleteUI(self.winref)
@@ -399,10 +407,16 @@ class mainwindow:
 		mc.showWindow(HBmainwin)
 		mc.window(HBmainwin, edit = True, height = HBwindheight, width = HBwindwidth)
 	
-def svnmain():
-	print "svnmain()"
-	mycheckout = checkedout()
-	mymainwindow = mainwindow(mycheckout)
+def initializePlugin(argument = "monkey"):
+	global current
+	current = checkedout()
+	mymainwindow = mainwindow(current)
+	print "SVN Tools plug-in loaded"
+	print argument
+
+def uninitializePlugin(argument = "monkey"):
+	print "SVN Tools plug-in unloaded"
+	print argument
 
 def rmrec(dirname):
 	if not os.path.isdir(dirname):
@@ -432,4 +446,4 @@ def fileonly(fullpath):
 	return fileonlyre.sub('', fullpath)
 
 if __name__ == "svntools":
-	svnmain()
+	initializePlugin()
