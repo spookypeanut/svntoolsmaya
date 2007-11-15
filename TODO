@@ -1,4 +1,7 @@
 Make main window look pretty
 
 Make the config window have lists for project & asset names
+- Add "add" buttons for both assets & projs
+- Make config window cope if a project has no assets
+- Automatically create commit message when creating asset in new project
 
