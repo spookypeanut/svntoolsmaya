@@ -1,0 +1,12 @@
+#summary The Problems Currently Faced by SVN Tools for Maya
+
+= Introduction =
+
+Progress of SVN Tools for Maya has stalled, due to a number of issues which are seemingly unavoidable. These are discussed here.
+
+= Details =
+
+  * Locking does not work
+Back in the first revision that I put on here, there was code to allow a .ma file to be _locked_ by the person using it. This, however, does not work. The problem was not with my code (I'm sticking by that), but with my repository: I tried to lock a file as one user from the command line, and it still let me check it out and commit it as another user. I had no intention of getting into the nitty-gritty of SVN, that wasn't what I wanted to spend my time doing, so I just cut out the locking mechanism completely. If anyone knows why my locking might have been playing up, do drop me a line.
+  * Cannot use my plugin on a shelf
+Ideally what I want to do is have "Commit", "Checkout" etc buttons on the shelf. I can, however, find no way to do that. I can register commands, but I don't think I can register, for example, myCheckout.commit() or similar. I have not (quite) stopped looking, but it's not looking like it's possible without serious rearrangement of the plugin (i.e., rewriting it in a non-oo way). And I don't want to do that, if I can possibly avoid it.
