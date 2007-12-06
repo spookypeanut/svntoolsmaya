@@ -81,6 +81,7 @@ class checkedout:
 		self.cfgwin = configwin(self)
 	
 	def checkout(self, revnum = 0):
+		mc.headsUpMessage("Please wait while your file is checked out...", time = 10)
 		HBfilename = self.locfilename()
 		if not os.path.exists(self.localdir):
 			os.makedirs(self.localdir)
@@ -118,8 +119,8 @@ class checkedout:
 			self.client.checkout(dironly(self.reposfilename()), fullpath, revision = HBrev)
 		else:
 			self.client.checkout(dironly(self.reposfilename()), fullpath)
-
 		mc.file(self.locfilename(), o = True, force = True)
+		mc.headsUpMessage("File checked out")
 			
 	def adddir(self, fullpath):
 		if not os.path.exists(fullpath):
@@ -361,6 +362,7 @@ class configwin:
 			mc.textScrollList(self.asslistbox, edit = True, append = asslist, selectItem = self.checkout.assetname, selectCommand = self.changeass)
 		else:
 			mc.textScrollList(self.asslistbox, edit = True, append = asslist, sii = 1, selectCommand = self.changeass)
+			self.checkout.assetname = mc.textScrollList(self.asslistbox, q = True, selectItem = True)[0]
 
 	def addnewproj(self, ignored = "monkey"):
 		HBresult = mc.promptDialog(title = "Enter new project name",\
@@ -459,17 +461,6 @@ class mainwindow:
 		mc.showWindow(HBmainwin)
 		mc.window(HBmainwin, edit = True, height = HBwindheight, width = HBwindwidth)
 	
-def initializePlugin(argument = "monkey"):
-	global current
-	current = checkedout()
-	mymainwindow = mainwindow(current)
-	print "SVN Tools plug-in loaded"
-	print argument
-
-def uninitializePlugin(argument = "monkey"):
-	print "SVN Tools plug-in unloaded"
-	print argument
-
 def rmrec(dirname):
 	if not os.path.isdir(dirname):
 		return 0
@@ -496,6 +487,15 @@ def dironly(fullpath):
 def fileonly(fullpath):
 	fileonlyre = re.compile('^.*\/')
 	return fileonlyre.sub('', fullpath)
+
+def initializePlugin(argument = "monkey"):
+	global current
+	current = checkedout()
+	mymainwindow = mainwindow(current)
+	print "SVN Tools plug-in loaded"
+
+def uninitializePlugin(argument = "monkey"):
+	print "SVN Tools plug-in unloaded"
 
 if __name__ == "svntools":
 	initializePlugin()
