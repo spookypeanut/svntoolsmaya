@@ -19,7 +19,13 @@ class checkedout:
 			self.readcfg()
 	
 	def filename(self):
-		return self.localdir + '/' + self.projname + '/' + self.assetname + '/' + self.projname + '.' + self.assetname + '.ma'
+		return self.projname + '/' + self.assetname + '/' + self.projname + '.' + self.assetname + '.ma'
+
+	def locfilename(self):
+		return self.localdir + '/' + self.filename()
+
+	def reposfilename(self):
+		return self.repos.url() + '/' + self.filename()
 
 	def readcfg(self):
 		self.repos.name = mc.optionVar(q = 'svnReposName')
@@ -37,7 +43,7 @@ class checkedout:
 	def revlist(self, ignored = "nothing"):
 		HBheadrev = pysvn.Revision(pysvn.opt_revision_kind.head)
 		HBcurrrev = HBheadrev
-		HBalllogs = self.client.log(self.filename())
+		HBalllogs = self.client.log(self.locfilename())
 		if mc.window("svnToolsRevListWin", exists = True):
 			mc.deleteUI("svnToolsRevListWin")
 		self.listwin = mc.window("svnToolsRevListWin")
@@ -75,7 +81,7 @@ class checkedout:
 		self.cfgwin = configwin(self)
 	
 	def checkout(self, revnum = 0):
-		HBfilename = self.filename()
+		HBfilename = self.locfilename()
 		if not os.path.exists(self.localdir):
 			os.makedirs(self.localdir)
 		if isversioned(HBfilename):
@@ -101,33 +107,34 @@ class checkedout:
 			print "File not currently under version control"
 		if os.path.isfile(HBfilename):
 			os.remove(HBfilename)
+		print "Checking out revision number %d" % revnum
+		fullpath = dironly(self.locfilename())
+		if not isversioned(fullpath):
+			for i in ['/', (self.projname + '/'), (self.projname + '/' + self.assetname + '/')]:
+				if not isversioned(self.localdir + '/' + i):
+					self.client.checkout(self.repos.url() + '/' + i, self.localdir + '/' + i, recurse=False)
 		if revnum != 0:
-			print "Checking out revision number %d" % revnum
 			HBrev = pysvn.Revision(pysvn.opt_revision_kind.number, revnum)
-			self.client.checkout(self.repos.url(), self.localdir, revision = HBrev)
+			self.client.checkout(dironly(self.reposfilename()), fullpath, revision = HBrev)
 		else:
-			print "Checking out youngest revision"
-			print "self.client.checkout(" + self.repos.url() + ", " + self.localdir + ")"
-			self.client.checkout(self.repos.url(), self.localdir)
-		mc.file(self.filename(), o = True, force = True)
+			self.client.checkout(dironly(self.reposfilename()), fullpath)
+
+		mc.file(self.locfilename(), o = True, force = True)
 			
 	def adddir(self, fullpath):
 		if not os.path.exists(fullpath):
 			os.makedirs(fullpath)
 		self.client.add(fullpath)
 
-	#def addass(self, assname):
-
-		
 	def discard(self, ignored = "nothing"):
-		HBfilename=self.filename()
+		HBfilename=self.locfilename()
 		HBanswer = mc.confirmDialog(title = "Discard changes?", \
 					message = "Discard all changes and revert to the last checked out version?", \
 					button = ["Yes", "No"], defaultButton = "No", cancelButton = "No", \
 					dismissString = "No")
 		if HBanswer == "Yes":
 			print "Reverting..."
-			HBfilename = self.filename()
+			HBfilename = self.locfilename()
 			self.client.revert(HBfilename)
 			if (mc.file(HBfilename, open = True, force = True)):
 				return 1
@@ -138,7 +145,7 @@ class checkedout:
 			return 0
 
 	def save(self):
-		HBsavename = self.filename()
+		HBsavename = self.locfilename()
 		HBdirname = dironly(HBsavename)
 		if not os.access(HBdirname, os.W_OK):
 			os.makedirs(HBdirname)
@@ -149,16 +156,19 @@ class checkedout:
 		else:
 			return 0
 		
-	def commit(self, ignored="nothing"):
+	def commit(self, ignored="nothing", message=""):
 		if self.save():
-			HBsavename = self.filename()
-			HBresult = mc.promptDialog(title = "Enter commit message",\
+			HBsavename = self.locfilename()
+			if message == "":
+				HBresult = mc.promptDialog(title = "Enter commit message",\
 					message = "Please enter a description of the edits you are committing", button = ['OK', 'Cancel'],\
 					defaultButton = 'OK', cancelButton = 'Cancel', dismissString = 'Cancel')
-			if HBresult == 'OK':
-				HBcommitmessage = mc.promptDialog(q = True, text = True)
+				if HBresult == 'OK':
+					HBcommitmessage = mc.promptDialog(q = True, text = True)
+				else:
+					return 0
 			else:
-				return 0
+				HBcommitmessage = message
 
 			HBdirname = dironly(HBsavename)
 			if self.client.checkin([HBdirname, HBsavename], HBcommitmessage):
@@ -169,11 +179,20 @@ class checkedout:
 					message = promptMessage, button = 'OK',\
 					defaultButton = 'OK', cancelButton = 'OK', dismissString = 'OK')
 
-	def add(self):
-		HBdirname = self.filename()
-		print "Adding " + self.filename()
+	def addproj(self, ignored = "monkey"):
+		HBdirname = self.localdir + '/' + self.projname
+		print "Adding " + HBdirname
+		self.adddir(HBdirname)
+		if self.client.checkin([HBdirname], 'AUTO: Adding \"%s\" project' % self.projname):
+			mc.headsUpMessage("Commited new project")
+
+	def add(self, ignored = "monkey"):
+		HBdirname = self.locfilename()
+		print "Adding " + self.locfilename()
 		if self.save():
 			print "Saved OK..."
+			self.adddir(dironly(self.locfilename()))
+			print self.client.status(HBdirname)
 			HBlist = self.client.status(HBdirname)
 			version_check = HBlist[0]
 # WARNING: TODO: FIXME: this line ^^^ may not work every time. It confuses me
@@ -181,7 +200,7 @@ class checkedout:
 			if not version_check.is_versioned:
 				print "Add succeeded"
 				self.client.add(HBdirname)
-
+			self.commit(message = "AUTO: Adding \"%s\" asset" % (self.projname + '/' +self.assetname) )
 
 class repos:
 	"All the details for a repository are stored in here"
@@ -233,6 +252,14 @@ class configwin:
 		self.reposTab(HBtabs)
 		self.miscTab(HBtabs)
 
+		protcontrol = {
+			'svn+ssh': self.protssh,
+			'svn': self.protsvn,
+			'http': self.prothttp,
+			'https': self.prothttps
+		}[passedco.repos.protocol]
+		mc.radioCollection(self.protfield, edit = True, select = protcontrol)
+
 		mc.setParent(topLevel)
 		closeBut = mc.button(label = "Close", command = self.close)
 
@@ -253,6 +280,7 @@ class configwin:
 		self.prothttp = mc.radioButton(label = "http", align = 'left', onCommand = self.changeprot)
 		self.prothttps = mc.radioButton(label = "https", align = 'left', onCommand = self.changeprot)
 		
+
 		mc.setParent(HBgrids)
 		mc.frameLayout(label = "Hostname")
 		self.hostnamefield = mc.textField(editable = True, text = self.repos.hostname)
@@ -273,9 +301,9 @@ class configwin:
 	def assetTab(self, parent):
 		HBcolumns = mc.columnLayout(adjustableColumn = True)
 		mc.tabLayout(parent, edit = True, tabLabel = (HBcolumns, "Asset"))
-		self.assfilenamedisplay = mc.text (label = self.checkout.filename(), align = "center")
+		self.assfilenamedisplay = mc.text (label = self.checkout.locfilename(), align = "center")
 
-		HBgrids = mc.gridLayout (numberOfColumns = 2, cellWidthHeight=(300, 240))
+		HBgrids = mc.gridLayout (numberOfColumns = 2, cellWidthHeight=(300, 200))
 
 		mc.frameLayout(label = "Project name")
 		rawlist = self.checkout.client.list(self.checkout.repos.url())
@@ -289,6 +317,24 @@ class configwin:
 		mc.frameLayout(label = "Asset name")
 		self.asslistbox = mc.textScrollList()
 		self.updateasslist()
+
+		mc.setParent(HBcolumns)
+		HBgrids = mc.gridLayout (numberOfColumns = 2, cellWidthHeight=(300, 40))
+		mc.button(label = "Add New Project", align="center", command=self.addnewproj)
+		mc.button(label = "Add As New Asset", align="center", command=self.addnewasset)
+
+		mc.setParent(parent)
+
+	def miscTab(self, parent):
+		HBcolumns = mc.columnLayout(adjustableColumn = True)
+		mc.tabLayout(parent, edit = True, tabLabel = (HBcolumns, "Miscellaneous"))
+		self.miscfilenamedisplay = mc.text (label = self.checkout.locfilename(), align = "center")
+
+		HBgrids = mc.gridLayout (numberOfColumns = 2, cellWidthHeight=(300, 240))
+		mc.setParent(HBgrids)
+		mc.frameLayout(label = "Local directory")
+		self.localdirfield = mc.textField(editable = True, text = self.checkout.localdir)
+		mc.textField(self.localdirfield, edit = True, cc = self.changelocdir)
 
 		mc.setParent(parent)
 
@@ -306,10 +352,8 @@ class configwin:
 					defaultButton = 'OK', cancelButton = 'Cancel', dismissString = 'Cancel')
 			if HBresult == 'OK':
 				newassname = mc.promptDialog(q = True, text = True)
-				self.checkout.adddir(self.checkout.localdir + "/" + self.checkout.projname + "/" + newassname)
 				self.checkout.assetname = newassname
 				self.checkout.add()
-				self.checkout.commit()
 				asslist.append(newassname)
 			else:
 				return 0
@@ -318,19 +362,27 @@ class configwin:
 		else:
 			mc.textScrollList(self.asslistbox, edit = True, append = asslist, sii = 1, selectCommand = self.changeass)
 
-		
-	def miscTab(self, parent):
-		HBcolumns = mc.columnLayout(adjustableColumn = True)
-		mc.tabLayout(parent, edit = True, tabLabel = (HBcolumns, "Miscellaneous"))
-		self.miscfilenamedisplay = mc.text (label = self.checkout.filename(), align = "center")
+	def addnewproj(self, ignored = "monkey"):
+		HBresult = mc.promptDialog(title = "Enter new project name",\
+				message = "Please enter the name of the new project", button = ['OK', 'Cancel'],\
+				defaultButton = 'OK', cancelButton = 'Cancel', dismissString = 'Cancel')
+		if HBresult == 'OK':
+			newname = mc.promptDialog(q = True, text = True)
+			self.checkout.projname = newname
+			self.checkout.addproj(newname)
+			self.updateasslist()
 
-		HBgrids = mc.gridLayout (numberOfColumns = 2, cellWidthHeight=(300, 240))
-		mc.setParent(HBgrids)
-		mc.frameLayout(label = "Local directory")
-		self.localdirfield = mc.textField(editable = True, text = self.checkout.localdir)
-		mc.textField(self.localdirfield, edit = True, cc = self.changelocdir)
-
-		mc.setParent(parent)
+	def addnewasset(self, ignored = "monkey"):
+		HBresult = mc.promptDialog(title = "Enter new asset name",\
+				message = "Please enter the name of the new asset", button = ['OK', 'Cancel'],\
+				defaultButton = 'OK', cancelButton = 'Cancel', dismissString = 'Cancel')
+		if HBresult == 'OK':
+			newname = mc.promptDialog(q = True, text = True)
+			self.checkout.assetname = newname
+			self.checkout.add(newname)
+			self.updateasslist()
+		else:
+			return 0
 
 	def changelocdir(self, newname):
 		if newname[len(newname)-1] == '/':
@@ -380,8 +432,8 @@ class configwin:
 
 	def updatewin(self):
 		mc.text(self.urldisplay, edit = True, label = self.repos.url())
-		mc.text(self.assfilenamedisplay, edit = True, label = self.checkout.filename())
-		mc.text(self.miscfilenamedisplay, edit = True, label = self.checkout.filename())
+		mc.text(self.assfilenamedisplay, edit = True, label = self.checkout.locfilename())
+		mc.text(self.miscfilenamedisplay, edit = True, label = self.checkout.locfilename())
 
 	def close(self, ignored = "nothing"):
 		mc.deleteUI(self.winref)
@@ -433,13 +485,13 @@ def isversioned(checkfile):
 	HBclient = pysvn.Client()
 	HBdirname = dironly(checkfile)
 	if not os.path.exists(HBdirname + ".svn"):
-		print "No .svn directory: assuming unversioned"
+		print HBdirname + ".svn doesn't exist: assuming unversioned"
 		return 0
 	return HBclient.status(checkfile)[0].is_versioned
 
 def dironly(fullpath):
 	dironlyre = re.compile('/[^/]*$')
-	return dironlyre.sub('', fullpath)
+	return dironlyre.sub('/', fullpath)
 
 def fileonly(fullpath):
 	fileonlyre = re.compile('^.*\/')

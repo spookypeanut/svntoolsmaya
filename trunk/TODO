@@ -1,7 +1,6 @@
 Make main window look pretty
+Add "please wait" when busy
 
-Make the config window have lists for project & asset names
-- Add "add" buttons for both assets & projs
-- Make config window cope if a project has no assets
-- Automatically create commit message when creating asset in new project
-
+BUGS:
+- Make checkout older version work when switching assets (and nothing checked out)
+	- Maybe automatically check out when switching assets?
