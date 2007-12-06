@@ -1,5 +1,4 @@
 Make main window look pretty
-Add "please wait" when busy
 
 BUGS:
 - Make checkout older version work when switching assets (and nothing checked out)
